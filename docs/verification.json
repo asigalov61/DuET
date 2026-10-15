@@ -1,0 +1,34 @@
+{
+  "checkpoint_epoch": 83,
+  "features": [
+    {
+      "start_seconds": 0.0,
+      "exact": true,
+      "notes": 6
+    },
+    {
+      "start_seconds": 32.0,
+      "exact": true,
+      "notes": 9
+    },
+    {
+      "start_seconds": 64.0,
+      "exact": true,
+      "notes": 2
+    }
+  ],
+  "encoder_memory_max_absolute_difference": {
+    "frame": 0.0,
+    "note": 0.0
+  },
+  "cached_and_uncached_rows_equal": true,
+  "full_piece_three_windows_exact": true,
+  "generated_notes": 13,
+  "source_checkpoint_untouched": true,
+  "real_piece": {
+    "windows": 7,
+    "notes": 2000,
+    "records_identical_to_retained_export": true,
+    "seconds": 49.52
+  }
+}

@@ -1,0 +1,94 @@
+name: tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install '.[test]'
+      - run: python -m unittest discover -s tests
+  audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install '.[audio]'
+      - name: Transkun v2 audio smoke test
+        run: |
+          python - <<'PY'
+          import tempfile
+          import wave
+          from pathlib import Path
+          import mido
+          import numpy as np
+          import torch
+          from duet.audio import audio_to_midi
+          torch.set_num_threads(2)
+          with tempfile.TemporaryDirectory() as tmp:
+              audio = Path(tmp) / 'tone.wav'
+              midi = Path(tmp) / 'performance.mid'
+              t = np.arange(3 * 44100) / 44100
+              samples = (8000 * np.sin(2 * np.pi * 440 * t)).astype('<i2')
+              with wave.open(str(audio), 'wb') as f:
+                  f.setnchannels(1)
+                  f.setsampwidth(2)
+                  f.setframerate(44100)
+                  f.writeframes(samples.tobytes())
+              result = audio_to_midi(audio, midi)
+              assert result['model_version'] == '2.0'
+              mido.MidiFile(midi)
+          PY
+      - name: Demo UI and notation smoke test
+        env:
+          MODEL_REPO: private-test-placeholder
+          MODEL_REVISION: test
+          DUET_SKIP_MODEL_LOAD: "1"
+        run: |
+          pip install gradio==5.49.1 verovio spaces
+          python - <<'PY'
+          import runpy
+          import shutil
+          import uuid
+          import numpy as np
+          from duet.score import Score
+          from duet.export import write_musicxml
+          app = runpy.run_path('demo/app.py')
+          job = uuid.uuid4().hex
+          root = app['ROOT'] / job
+          (root / 'result').mkdir(parents=True)
+          try:
+              score = Score(np.array([[60, 0, 1, 0], [48, 0, 4, 1]], float),
+                            np.array([0.0]), np.array([4.0]), ['4/4'],
+                            np.array([0, 0]), np.array([0]))
+              write_musicxml(score, root / 'result/score.musicxml')
+              from concurrent.futures import ThreadPoolExecutor
+              with ThreadPoolExecutor(max_workers=1) as pool:
+                  svg, caption = pool.submit(app['render_page'], job, 1).result()
+              assert '<svg' in svg, caption
+              assert 'Page 1' in caption
+              import wave
+              long_audio = root / 'long.wav'
+              with wave.open(str(long_audio), 'wb') as f:
+                  f.setnchannels(1)
+                  f.setsampwidth(2)
+                  f.setframerate(8000)
+                  f.writeframes(bytes(8000 * 2 * 241))
+              clipped, info = app['prepare_audio'](long_audio, root)
+              assert info['truncated'] is True
+              with wave.open(str(clipped), 'rb') as f:
+                  assert f.getnframes() / f.getframerate() == 240
+              with wave.open(str(long_audio), 'rb') as f:
+                  assert f.getnframes() / f.getframerate() == 241
+          finally:
+              shutil.rmtree(root)
+          PY
