@@ -1,4 +1,4 @@
-"""Private audio/MIDI-to-score Space. No weights or tokens are served as files."""
+"""Audio-to-score Space. No weights or tokens are served as files."""
 
 import sys
 import html
@@ -11,13 +11,12 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
 
 import spaces
 import gradio as gr
-import mido
 import torch
-import verovio
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from engraving import engrave, score_pages
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from duet import DuET
 
@@ -31,79 +30,14 @@ torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
 
-def youtube_id(url):
-    parsed = urlparse(url.strip())
-    if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port:
-        raise ValueError("Use a normal HTTPS YouTube video link.")
-    host = parsed.hostname
-    if host == "youtu.be":
-        value = parsed.path.strip("/")
-    elif host in {"youtube.com", "www.youtube.com", "m.youtube.com"}:
-        if parsed.path == "/watch":
-            value = parse_qs(parsed.query).get("v", [""])[0]
-        else:
-            parts = parsed.path.strip("/").split("/")
-            value = (
-                parts[1] if len(parts) == 2 and parts[0] in {"shorts", "embed"} else ""
-            )
-    else:
-        raise ValueError("Only YouTube video links are supported.")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", value):
-        raise ValueError("Invalid YouTube video ID.")
-    return value
-
-
-def download_youtube(url, folder):
-    # Rebuild URL from an ID. Never pass arbitrary URLs, local paths or options.
-    canonical = "https://www.youtube.com/watch?v=" + youtube_id(url)
-    result = subprocess.run(
-        [
-            "yt-dlp",
-            "--no-playlist",
-            "--no-config",
-            "--no-progress",
-            "--socket-timeout",
-            "20",
-            "--retries",
-            "1",
-            "--max-filesize",
-            "100M",
-            "--match-filter",
-            "!is_live",
-            "--download-sections",
-            f"*0-{MAX_SECONDS}",
-            "-f",
-            "bestaudio/best",
-            "-o",
-            str(folder / "youtube.%(ext)s"),
-            canonical,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    candidates = [
-        p for p in folder.glob("youtube.*") if p.suffix not in {".part", ".ytdl"}
-    ]
-    if result.returncode or len(candidates) != 1:
-        raise ValueError(
-            "YouTube download unavailable. "
-            "Upload an authorized audio file instead. Login/DRM restrictions are not bypassed."
-        )
-    return candidates[0]
-
-
-def validate_input(path, midi):
+def validate_input(path):
     if not path.is_file() or path.stat().st_size > 100 * 1024 * 1024:
-        raise ValueError("Input must be a file of at most 100 MB.")
-    if midi:
-        if path.stat().st_size > 5 * 1024 * 1024:
-            raise ValueError("MIDI limit is 5 MB.")
-        duration = mido.MidiFile(path).length
-        if not 0 < duration <= 120:
-            raise ValueError(
-                "MIDI demo limit is 120 seconds; use the library for full pieces."
-            )
+        raise ValueError("Input must be an audio file of at most 100 MB.")
+    if path.suffix.lower() in {".mid", ".midi"}:
+        raise ValueError("This demo accepts audio only. Please upload a piano recording.")
+    with path.open("rb") as source:
+        if source.read(4) == b"MThd":
+            raise ValueError("This demo accepts audio only. Please upload a piano recording.")
 
 
 def prepare_audio(path, folder):
@@ -168,6 +102,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DUET_MODEL = None
 AUDIO_MODEL = None
 if os.environ.get("DUET_SKIP_MODEL_LOAD") != "1":
+    from musescore_runtime import ensure_musescore
+    ensure_musescore()
     from duet.audio import load_audio_model
 
     DUET_MODEL = DuET.from_pretrained(
@@ -177,9 +113,7 @@ if os.environ.get("DUET_SKIP_MODEL_LOAD") != "1":
 
 
 @spaces.GPU(duration=180)
-def infer(path, output, midi):
-    if midi:
-        return DUET_MODEL.transcribe(path, output)
+def infer(path, output):
     return DUET_MODEL.transcribe_audio(path, output, audio_model=AUDIO_MODEL)
 
 
@@ -189,19 +123,32 @@ def render_page(job_id, page):
     xml = ROOT / job_id / "result" / "score.musicxml"
     if not xml.is_file():
         return "", "Result expired. Run again."
-    toolkit = verovio.toolkit(False)
-    toolkit.setResourcePath(str(Path(verovio.__file__).parent / "data"))
-    toolkit.setOptions({"pageWidth": 1600, "pageHeight": 2200, "scale": 40})
-    if not toolkit.loadFile(str(xml)):
-        return "", "Preview unavailable; download MusicXML to view in a score editor."
-    total = toolkit.getPageCount()
-    number = min(max(int(page or 1), 1), max(total, 1))
-    return toolkit.renderToSVG(number), f"Page {number} / {total}"
+    pages = score_pages(xml.parent)
+    if not pages:
+        engrave(xml.parent)
+        pages = score_pages(xml.parent)
+    total = len(pages)
+    number = min(max(int(page or 1), 1), total)
+    svg = pages[number - 1].read_text()
+    # Fit MuseScore's print-sized SVG to the screen, preserving its viewBox.
+    svg = re.sub(
+        r"<svg\b[^>]*>",
+        lambda match: re.sub(r'\s(?:width|height|style)="[^"]*"', "", match.group(0))[:-1]
+        + ' style="display:block;width:100%;max-width:100%;height:auto;">',
+        svg,
+        count=1,
+    )
+    # Keep notation legible
+    # independently of the surrounding Gradio/browser light or dark theme.
+    preview = (
+        '<div style="background:#fff;color:#000;color-scheme:light;'
+        'width:100%;max-width:960px;min-width:0;box-sizing:border-box;margin:0 auto;padding:12px;border-radius:8px;">'
+        f'{svg}</div>'
+    )
+    return preview, f"Page {number} / {total}"
 
 
-def run(source, upload, url, consent, progress=gr.Progress()):
-    if not consent:
-        raise gr.Error("Please confirm you have permission to process this input.")
+def run(upload, progress=gr.Progress()):
     for old in ROOT.iterdir():
         if old.is_dir() and time.time() - old.stat().st_mtime > 86400:
             shutil.rmtree(old)
@@ -210,25 +157,14 @@ def run(source, upload, url, consent, progress=gr.Progress()):
     folder.mkdir()
     try:
         progress(0, desc="Preparing input")
-        if source == "YouTube":
-            path = download_youtube(url, folder)
-            midi = False
-        else:
-            if not upload:
-                raise ValueError("Upload an audio or MIDI file.")
-            midi = source == "MIDI"
-            path = folder / (
-                "input.mid" if midi else "input" + Path(upload).suffix.lower()
-            )
-            shutil.copyfile(upload, path)
-        validate_input(path, midi)
-        audio_info = None
-        if not midi:
-            path, audio_info = prepare_audio(path, folder)
-            if source == "YouTube":
-                audio_info["youtube_first_240_seconds_only"] = True
+        if not upload:
+            raise ValueError("Upload a piano audio file.")
+        path = folder / ("input" + Path(upload).suffix.lower())
+        shutil.copyfile(upload, path)
+        validate_input(path)
+        path, audio_info = prepare_audio(path, folder)
         progress(0.1, desc="Waiting for GPU / transcribing")
-        infer(str(path), str(folder / "result"), midi)
+        infer(str(path), str(folder / "result"))
         if audio_info is not None:
             report_path = folder / "result/report.json"
             report = json.loads(report_path.read_text())
@@ -236,11 +172,6 @@ def run(source, upload, url, consent, progress=gr.Progress()):
             report_path.write_text(json.dumps(report, indent=2) + "\n")
         progress(0.95, desc="Rendering score")
         out = folder / "result"
-        files = [
-            str(out / name) for name in ["score.mid", "score.musicxml", "report.json"]
-        ]
-        if (out / "performance.mid").is_file():
-            files.append(str(out / "performance.mid"))
         try:
             svg, caption = render_page(job, 1)
         except Exception:
@@ -248,18 +179,18 @@ def run(source, upload, url, consent, progress=gr.Progress()):
                 "",
                 "Preview unavailable. Download MusicXML to open in a score editor.",
             )
+        files = [
+            str(out / name)
+            for name in ("score.mid", "score.musicxml", "score.pdf", "report.json", "performance.mid")
+            if (out / name).is_file()
+        ]
         return (
             files,
             svg,
             caption,
             job,
             1,
-            (
-                "Complete. Audio longer than 240 seconds is processed only for its first 240 seconds. "
-                if not midi
-                else "Complete. "
-            )
-            + "Temporary results expire after 24 hours.",
+            "Complete. Only the first 240 seconds of audio are processed.",
         )
     except Exception as exc:
         # Do not expose stack traces, server paths, or credentials through the UI.
@@ -267,28 +198,19 @@ def run(source, upload, url, consent, progress=gr.Progress()):
             message = (
                 str(exc)
                 if isinstance(exc, ValueError)
-                else "Download/decoding timed out."
+                else "Audio decoding timed out."
             )
         else:
-            message = "Transcription failed. Try a shorter piano clip or a MIDI file."
+            message = "Transcription failed. Try a shorter piano recording."
         raise gr.Error(html.escape(message)) from None
 
 
 with gr.Blocks(title="DuET — Piano to Score", delete_cache=(3600, 86400)) as demo:
     gr.Markdown(
-        "# DuET — Piano to Score\nUpload a piano recording or performance MIDI, or use a YouTube link. "
-        "Download score MIDI and MusicXML, and preview the notation below.\n\n"
-        "**Research demo · DuET weights: CC BY-NC 4.0 · Audio: first 240 seconds; MIDI: up to 120 seconds.** "
-        "Audio uses Transkun v2. Longer audio is automatically truncated, not rejected. ZeroGPU usage counts toward your quota. Engraving is a preview, not a corrected edition."
+        "# DuET — Piano to Score\nUpload a piano recording. "
+        "Only the first 240 seconds are processed; anything beyond is automatically truncated."
     )
-    source = gr.Radio(["Audio", "MIDI", "YouTube"], value="Audio", label="Input type")
-    upload = gr.File(label="Audio or MIDI", type="filepath", file_count="single")
-    url = gr.Textbox(
-        label="YouTube URL", placeholder="https://www.youtube.com/watch?v=…"
-    )
-    consent = gr.Checkbox(
-        label="I have permission to process this material for noncommercial use."
-    )
+    upload = gr.File(label="Piano audio", type="filepath", file_count="single", file_types=["audio"])
     button = gr.Button("Generate score", variant="primary")
     status = gr.Textbox(label="Status", interactive=False)
     downloads = gr.File(label="Downloads", file_count="multiple")
@@ -298,7 +220,7 @@ with gr.Blocks(title="DuET — Piano to Score", delete_cache=(3600, 86400)) as d
     preview = gr.HTML()
     button.click(
         run,
-        [source, upload, url, consent],
+        [upload],
         [downloads, preview, caption, job_id, page, status],
         concurrency_limit=1,
         api_name="transcribe",

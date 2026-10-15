@@ -1,0 +1,16 @@
+# Only runtime source and package metadata belong in the image.
+**
+!pyproject.toml
+!README.md
+!LICENSE
+!LICENSE-MODEL
+!THIRD_PARTY_NOTICES.md
+!src/
+!src/**
+!demo/
+!demo/app.py
+!demo/engraving.py
+!demo/musescore_runtime.py
+src/**/__pycache__/
+src/**/*.pyc
+src/**/*.egg-info/

@@ -1,8 +1,6 @@
 torch==2.8.0
 torchaudio==2.8.0
 spaces
-verovio
-yt-dlp>=2025.3
 setuptools<81
 transkun==2.0.1
 numpy>=1.26,<3

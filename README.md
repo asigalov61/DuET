@@ -97,3 +97,17 @@ python -m unittest discover -s tests
 ```
 
 Tests use generated fixtures. No training dataset or third-party performance is bundled. See [release verification](docs/VERIFICATION.md), [contribution guidelines](CONTRIBUTING.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
+
+## Demo
+
+The [online demo](https://huggingface.co/spaces/Wayne42/DuET-demo) accepts piano
+audio and processes its first 240 seconds. Access depends on the Space's
+visibility and your account permissions. The CLI supports both MIDI and audio
+and is not subject to this demo duration limit. See [demo documentation](demo/README.md)
+for MuseScore engraving behavior and maintainer deployment instructions.
+
+## License
+
+Code is licensed under [MIT](LICENSE). DuET model weights are separately licensed
+under [CC BY-NC 4.0](LICENSE-MODEL); the code license does not grant commercial
+use of the weights. See [licensing details](docs/LICENSING.md).

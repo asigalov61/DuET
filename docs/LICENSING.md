@@ -24,10 +24,10 @@ Commercial permission for the code does not grant commercial permission for
 the weights. Third-party dependencies retain their own licenses. Training data
 and third-party musical examples are not distributed by this repository.
 
-## Release status
+## Distribution
 
-The GitHub repository remains private. The weight bundle is hosted in a private Hugging Face repository. Selecting licenses does not change
-repository visibility or publish artifacts.
+Repository visibility and access are managed separately from licensing.
+Selecting a license does not publish code or model artifacts.
 
 These licenses cover only rights the licensor can grant. They do not resolve
 upstream training-data copyright, database-right, or contractual questions;

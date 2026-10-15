@@ -54,7 +54,9 @@ jobs:
           MODEL_REVISION: test
           DUET_SKIP_MODEL_LOAD: "1"
         run: |
-          pip install gradio==5.49.1 verovio spaces
+          sudo apt-get update
+          xargs sudo apt-get install -y < demo/packages.txt
+          pip install gradio==5.49.1 spaces
           python - <<'PY'
           import runpy
           import shutil
@@ -71,6 +73,14 @@ jobs:
                             np.array([0.0]), np.array([4.0]), ['4/4'],
                             np.array([0, 0]), np.array([0]))
               write_musicxml(score, root / 'result/score.musicxml')
+              import mido
+              midi = mido.MidiFile()
+              track = mido.MidiTrack()
+              midi.tracks.append(track)
+              track.append(mido.Message('note_on', note=60, velocity=80))
+              track.append(mido.Message('note_off', note=60, time=480))
+              midi.save(root / 'result/score.mid')
+              (root / 'result/report.json').write_text('{}')
               from concurrent.futures import ThreadPoolExecutor
               with ThreadPoolExecutor(max_workers=1) as pool:
                   svg, caption = pool.submit(app['render_page'], job, 1).result()

@@ -1,41 +1,52 @@
-# Private Hugging Face deployment
+# Demo and maintainer deployment
 
-This Gradio ZeroGPU Space wraps the fixed epoch83 inference library with Gradio. It
-supports MIDI, audio through Transkun v2, and single YouTube links through yt-dlp.
-Verovio renders the generated MusicXML as paginated staff notation. MusicXML
-remains available if preview rendering fails. No training code is deployed.
+The demo accepts **piano audio only**. Transkun v2 produces performance MIDI,
+then DuET produces score MIDI. MuseScore 4.6.5 imports that score MIDI to
+produce MusicXML, PDF and paginated SVG previews. MIDI input is supported by
+the DuET library and CLI, but not by this demo's upload interface.
 
-Authenticate with `hf auth login` using permission to create/write repositories,
-then run from the repository root:
+Audio is limited to 100 MB. Only its first 240 seconds are processed; longer
+recordings are truncated automatically. One inference runs at a time. Temporary
+results are eligible for cleanup after 24 hours, on the next request.
+
+Downloads include `score.mid`, `score.musicxml`, `score.pdf`, `report.json`,
+and `performance.mid` when available. If engraving fails, score MIDI and the
+library-generated MusicXML remain available. Successful engraving replaces the
+MusicXML with MuseScore's MIDI-import result; it can differ from the library's
+direct MusicXML export.
+
+## Maintainer deployment tool
+
+`deploy.py` is a maintainer tool, not a prerequisite for using DuET. It requires
+a verified release bundle in `artifacts/epoch83/` containing `config.json`,
+`model.safetensors`, `LICENSE-MODEL` and `README.md`. These files are not in Git.
+The tool only creates or updates **private** model and Space repositories and
+refuses existing public repositories. It does not publish a release.
+
+Authenticate using `hf auth login` with repository write permissions. Separately
+create a fine-grained token with read access to the model repository. Supply it
+without putting its value in command history:
 
 ```bash
+read -r -s -p "Model read token: " DUET_HF_READ_TOKEN
+export DUET_HF_READ_TOKEN
 python demo/deploy.py --owner YOUR_HF_USERNAME
+unset DUET_HF_READ_TOKEN
 ```
 
-The script uploads `artifacts/epoch83` to a **private** model repository,
-checks the remote weight SHA256, and deploys a **private** Gradio ZeroGPU Space. It refuses
-public existing repositories, pins the model revision and puts the active HF
-token in a runtime Space secret (never source code). Prefer replacing that secret
-with a model-read-only token after deployment. No paid hardware is requested.
-Account subscription/quota requirements are controlled by Hugging Face.
+The read token is stored as the Space's `HF_TOKEN` secret. The tool never copies
+the active write/login token. It verifies the weight checksum and pins the model
+revision. The default backend is ZeroGPU; use `--backend cpu` for CPU Basic.
+Account access and hardware eligibility are managed by Hugging Face.
 
-Private personal Spaces are accessed by the owner; collaborators may need an
-organization Space and its access controls. Do not make the Space public merely
-to share with another member. Code is MIT; DuET weights remain CC BY-NC 4.0.
+GitHub and the Space are separate repositories. Pushing code to GitHub does not
+update the Space; deployment explicitly uploads a selected set of runtime files.
+The Docker build also excludes weights, credentials, Git history and outputs.
+No training code is deployed. Third-party terms are documented in
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
-Audio is decoded on CPU and truncated to its first 240 seconds before GPU
-transcription. YouTube downloads request only the first 240 seconds. The
-100 MB upload limit remains; MIDI retains its 120 second / 5 MB limit. The demo queues one
-inference at a time, and keeps temporary results for up to 24 hours. Old job files
-are removed on the next run. Use the library for full pieces. ZeroGPU uses the visitor GPU quota and may queue. Use `--backend cpu` for the
-CPU Basic Docker fallback. No dedicated GPU is selected.
+## Verification
 
-FFmpeg decodes audio. YouTube downloads can fail because of hosting-IP blocks,
-login requirements, regional availability, or site changes; upload authorized
-audio instead. Cookies, login bypasses, and DRM circumvention are not provided.
-Only video IDs on HTTPS YouTube URLs are accepted. Tokens and model files are
-outside the directory allowed for result downloads.
-
-Validation: unit tests cover MIDI export and audio-stage orchestration; CI also
-executes the real packaged Transkun model on generated audio. A deployment must
-additionally be checked for a running Space and an end-to-end sample request.
+Run the repository tests and CI checks before deployment. After deployment,
+check the Space runtime and an end-to-end audio request, including generated
+MusicXML, MIDI, PDF and preview. CI tests use generated inputs.

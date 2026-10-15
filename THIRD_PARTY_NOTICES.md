@@ -17,3 +17,11 @@ when using the Transkun v2 frontend in research.
 
 FFmpeg is a separate executable with licensing depending on its build. It is
 not distributed by this library. Other dependencies retain their own licenses.
+
+## MuseScore (demo engraving)
+
+The demo installs the official MuseScore 4.6.5 AppImage separately and invokes
+its command-line exporter with Qt offscreen rendering. MuseScore retains its
+upstream GPL license; DuET's MIT license does not relicense it. No MuseScore
+source or binary is bundled in the Python library or model weights.
+Project and source: https://github.com/musescore/MuseScore

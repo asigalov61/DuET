@@ -3,11 +3,12 @@
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
 
-from huggingface_hub import HfApi, get_token
+from huggingface_hub import HfApi
 
 
 def main():
@@ -16,7 +17,17 @@ def main():
     parser.add_argument("--backend", choices=["zero", "cpu"], default="zero")
     parser.add_argument("--model-name", default="DuET")
     parser.add_argument("--space-name", default="DuET-demo")
+    parser.add_argument(
+        "--runtime-token-env", default="DUET_HF_READ_TOKEN",
+        help="Environment variable containing a separate model-read-only HF token",
+    )
     args = parser.parse_args()
+    runtime_token = os.environ.get(args.runtime_token_env, "").strip()
+    if not runtime_token:
+        parser.error(
+            "Set the runtime token environment variable to a separate model-read-only "
+            "HF token before deployment; the login/write token is never copied."
+        )
     root = Path(__file__).resolve().parents[1]
     bundle = root / "artifacts/epoch83"
     config = json.loads((bundle / "config.json").read_text())
@@ -65,7 +76,7 @@ def main():
     if not api.repo_info(space_repo, repo_type="space").private:
         raise ValueError("Refusing to deploy to a public Space.")
     # Runtime only: no token is written into a file or Docker layer.
-    api.add_space_secret(space_repo, key="HF_TOKEN", value=get_token())
+    api.add_space_secret(space_repo, key="HF_TOKEN", value=runtime_token)
     api.add_space_variable(space_repo, key="MODEL_REPO", value=model_repo)
     api.add_space_variable(space_repo, key="MODEL_REVISION", value=info.sha)
     with tempfile.TemporaryDirectory(prefix="duet-space-") as temp:
@@ -84,12 +95,14 @@ def main():
         )
         (stage / "demo").mkdir()
         shutil.copyfile(root / "demo/app.py", stage / "demo/app.py")
+        shutil.copyfile(root / "demo/engraving.py", stage / "demo/engraving.py")
+        shutil.copyfile(root / "demo/musescore_runtime.py", stage / "demo/musescore_runtime.py")
         if args.backend == "zero":
             shutil.copyfile(root / "demo/SPACE_ZERO_README.md", stage / "README.md")
             shutil.copyfile(
                 root / "demo/requirements-zero.txt", stage / "requirements.txt"
             )
-            (stage / "packages.txt").write_text("ffmpeg\n")
+            shutil.copyfile(root / "demo/packages.txt", stage / "packages.txt")
         else:
             shutil.copyfile(root / "demo/Dockerfile", stage / "Dockerfile")
             shutil.copyfile(root / "demo/SPACE_README.md", stage / "README.md")
@@ -97,7 +110,7 @@ def main():
             repo_id=space_repo,
             repo_type="space",
             folder_path=stage,
-            commit_message="Deploy private audio MIDI score demo",
+            commit_message="Deploy private audio score demo",
         )
     api.request_space_hardware(
         space_repo, hardware="zero-a10g" if args.backend == "zero" else "cpu-basic"
