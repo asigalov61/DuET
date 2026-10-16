@@ -96,6 +96,7 @@ def main():
         (stage / "demo").mkdir()
         shutil.copyfile(root / "demo/app.py", stage / "demo/app.py")
         shutil.copyfile(root / "demo/engraving.py", stage / "demo/engraving.py")
+        shutil.copyfile(root / "demo/gpu_budget.py", stage / "demo/gpu_budget.py")
         shutil.copyfile(root / "demo/musescore_runtime.py", stage / "demo/musescore_runtime.py")
         if args.backend == "zero":
             shutil.copyfile(root / "demo/SPACE_ZERO_README.md", stage / "README.md")

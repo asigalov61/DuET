@@ -17,6 +17,7 @@ import gradio as gr
 import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engraving import engrave, score_pages
+from gpu_budget import estimate_gpu_duration, prepared_seconds
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from duet import DuET
 
@@ -92,6 +93,7 @@ def prepare_audio(path, folder):
     return target, {
         "limit_seconds": MAX_SECONDS,
         "original_seconds": duration,
+        "processed_seconds": prepared_seconds(target),
         "truncated": duration > MAX_SECONDS if duration is not None else None,
     }
 
@@ -112,9 +114,17 @@ if os.environ.get("DUET_SKIP_MODEL_LOAD") != "1":
     AUDIO_MODEL = load_audio_model(DEVICE)
 
 
-@spaces.GPU(duration=180)
+@spaces.GPU(duration=estimate_gpu_duration)
 def infer(path, output):
-    return DUET_MODEL.transcribe_audio(path, output, audio_model=AUDIO_MODEL)
+    if DEVICE == "cuda":
+        torch.cuda.synchronize()
+    started = time.monotonic()
+    DUET_MODEL.transcribe_audio(path, output, audio_model=AUDIO_MODEL)
+    if DEVICE == "cuda":
+        torch.cuda.synchronize()
+    return {"requested_seconds": estimate_gpu_duration(path, output),
+            "inference_wall_seconds": time.monotonic() - started,
+            "estimator": "max(30, ceil(15 + 0.65 * processed_audio_seconds))"}
 
 
 def render_page(job_id, page):
@@ -164,11 +174,12 @@ def run(upload, progress=gr.Progress()):
         validate_input(path)
         path, audio_info = prepare_audio(path, folder)
         progress(0.1, desc="Waiting for GPU / transcribing")
-        infer(str(path), str(folder / "result"))
+        gpu_info = infer(str(path), str(folder / "result"))
         if audio_info is not None:
             report_path = folder / "result/report.json"
             report = json.loads(report_path.read_text())
             report["audio_preprocessing"] = audio_info
+            report["gpu_budget"] = gpu_info
             report_path.write_text(json.dumps(report, indent=2) + "\n")
         progress(0.95, desc="Rendering score")
         out = folder / "result"

@@ -14,3 +14,4 @@
 src/**/__pycache__/
 src/**/*.pyc
 src/**/*.egg-info/
+!demo/gpu_budget.py

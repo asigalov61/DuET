@@ -50,3 +50,9 @@ No training code is deployed. Third-party terms are documented in
 Run the repository tests and CI checks before deployment. After deployment,
 check the Space runtime and an end-to-end audio request, including generated
 MusicXML, MIDI, PDF and preview. CI tests use generated inputs.
+
+GPU duration is estimated **after** decoding and truncation, from the prepared
+WAV length: `max(30, ceil(15 + 0.65 * seconds))`. This initial heuristic requests
+30–171 seconds and is not a runtime guarantee. Visitor limits still apply.
+`report.json` records the requested duration and inference wall time measured
+inside the GPU function (excluding queueing and engraving) for calibration.
