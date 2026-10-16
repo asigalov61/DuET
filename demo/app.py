@@ -220,6 +220,8 @@ with gr.Blocks(title="DuET — Piano to Score", delete_cache=(3600, 86400)) as d
     gr.Markdown(
         "# DuET — Piano to Score\nUpload a piano recording. "
         "Only the first 240 seconds are processed; anything beyond is automatically truncated."
+        "\n\nGPU usage is subject to Hugging Face ZeroGPU quotas; sign in with a free "
+        "Hugging Face account for a larger quota than anonymous access."
     )
     upload = gr.File(label="Piano audio", type="filepath", file_count="single", file_types=["audio"])
     button = gr.Button("Generate score", variant="primary")
