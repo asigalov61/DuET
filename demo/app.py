@@ -124,7 +124,7 @@ def infer(path, output):
         torch.cuda.synchronize()
     return {"requested_seconds": estimate_gpu_duration(path, output),
             "inference_wall_seconds": time.monotonic() - started,
-            "estimator": "max(30, ceil(15 + 0.65 * processed_audio_seconds))"}
+            "estimator": "max(15, ceil(10 + min(processed_audio_seconds, 240) * 5 / 24))"}
 
 
 def render_page(job_id, page):

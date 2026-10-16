@@ -12,7 +12,7 @@ def prepared_seconds(path):
 
 
 def estimate_gpu_duration(path, output):
-    # Initial heuristic, not a measured runtime guarantee. Keep startup margin
-    # and roughly the previous long-input budget; calibrate using runtime reports.
+    # Heuristic with startup margin: 15 seconds minimum, 60 for 240s audio.
+    # Not a runtime guarantee; calibrate using runtime reports.
     # `output` is required to match the decorated inference function signature.
-    return max(30, math.ceil(15 + 0.65 * prepared_seconds(path)))
+    return max(15, math.ceil(10 + min(prepared_seconds(path), 240) * 5 / 24))
