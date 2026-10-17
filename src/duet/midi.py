@@ -8,7 +8,7 @@ import numpy as np
 
 
 def read_performance_midi(path: Path, condition: str = "refined") -> dict:
-    """Read performance notes, skipping nonpositive notes and orphan note-offs.
+    """Read performance notes, skipping nonpositive/unclosed notes and orphan note-offs.
 
     Preserve FIFO pairing and valid notes; never modify the source MIDI.
     Other structural errors remain fatal.
@@ -75,12 +75,12 @@ def read_performance_midi(path: Path, condition: str = "refined") -> dict:
                     "All-notes-off/all-sound-off with active notes is ambiguous; supply explicit note-offs"
                 )
     unclosed = sum((len(queue) for queue in active.values()))
-    if unclosed:
-        raise ValueError(f"MIDI contains {unclosed} unclosed note-on events")
+    cleanup["unclosed_note_on_events"] = unclosed
     cleanup["input_note_on_events"] = len(notes)
     notes = [note for note in notes if note[2] is not None]
     cleanup["retained_notes"] = len(notes)
-    if cleanup["nonpositive_duration_notes"] or cleanup["unmatched_note_off_events"]:
+    if (cleanup["nonpositive_duration_notes"]
+            or cleanup["unmatched_note_off_events"] or unclosed):
         warnings.warn(
             f"Skipped invalid MIDI events in {path}: {cleanup}", RuntimeWarning
         )

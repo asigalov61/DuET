@@ -152,5 +152,46 @@ class InferenceTests(unittest.TestCase):
             self.assertEqual(data["midi_input_cleanup"]["unmatched_note_off_events"], 1)
 
 
+    def test_unclosed_notes_are_skipped_without_changing_source(self):
+        with tempfile.TemporaryDirectory() as d:
+            midi = mido.MidiFile()
+            track = mido.MidiTrack()
+            midi.tracks.append(track)
+            track.extend([
+                mido.Message("note_on", note=60, velocity=80),
+                mido.Message("note_on", note=64, velocity=80),
+                mido.Message("note_off", note=64, time=480),
+                mido.Message("note_on", note=64, velocity=90),
+            ])
+            path = Path(d) / "input.mid"
+            midi.save(path)
+            original = path.read_bytes()
+            with self.assertWarnsRegex(RuntimeWarning, "unclosed_note_on_events"):
+                data = read_performance_midi(path)
+            self.assertEqual(data["ref_pitch"].tolist(), [64])
+            self.assertEqual(data["ref_onset"].tolist(), [0.0])
+            self.assertEqual(data["ref_offset"].tolist(), [0.5])
+            self.assertEqual(data["midi_input_cleanup"], {
+                "nonpositive_duration_notes": 0,
+                "unmatched_note_off_events": 0,
+                "unclosed_note_on_events": 2,
+                "input_note_on_events": 3,
+                "retained_notes": 1,
+            })
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_all_unclosed_notes_still_reject_empty_input(self):
+        with tempfile.TemporaryDirectory() as d:
+            midi = mido.MidiFile()
+            track = mido.MidiTrack()
+            midi.tracks.append(track)
+            track.append(mido.Message("note_on", note=60, velocity=80))
+            path = Path(d) / "input.mid"
+            midi.save(path)
+            with self.assertWarnsRegex(RuntimeWarning, "unclosed_note_on_events"):
+                with self.assertRaisesRegex(ValueError, "no valid notes"):
+                    read_performance_midi(path)
+
+
 if __name__ == "__main__":
     unittest.main()
